@@ -1,0 +1,131 @@
+# SPDX-FileCopyrightText: 2026 Alexandre Gomes Gaigalas
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# PE32+ COFF header template for riscv64 UEFI applications.
+#
+# This file is catm'd in front of the linker output (a hex2 byte stream
+# of compiled code) so the resulting .efi binary has a valid Microsoft
+# PE32+ header. UEFI's LoadImage parses this header to find the entry
+# point, code section, and image size before transferring control.
+#
+# The two labels :PE32_base and :PE32_text bracket the header. Three
+# fields use forward-references resolved at hex2 link time:
+#
+#   %ELF_end>PE32_text  (relative to PE32_text)
+#       SizeOfCode  / SizeOfRawData / VirtualSize  -- total bytes from
+#       PE32_text up to the end-of-image marker the linker emits as
+#       :ELF_end. PE32+ stores these as 32-bit little-endian.
+#
+#   %ELF_end>PE32_base  (relative to PE32_base)
+#       SizeOfImage -- total bytes of the loaded image, including the
+#       header itself.
+#
+# Layout: 0x000 DOS header (MZ + zeros + e_lfanew=0x80)
+#         0x080 PE signature + COFF header
+#         0x098 Optional header (PE32+, magic 0x020B)
+#         0x178 Data directories (16 x {RVA, size}, all zero)
+#         0x1F8 Section table (1 entry: .text)
+#         0x240 :PE32_text -- code starts here
+
+:PE32_base
+
+# === [0x000] DOS MZ header ===========================================
+# Required by PE/COFF spec. Most fields are ignored by UEFI loaders;
+# only the magic "MZ" at offset 0 and the e_lfanew pointer at offset
+# 0x3C matter. We zero the rest.
+4D5A0000 00000000 00000000 00000000  # "MZ" + zero-padded DOS fields
+00000000 00000000 00000000 00000000
+00000000 00000000 00000000 00000000
+00000000 00000000 00000000 80000000  # last word: e_lfanew = 0x80
+                                     # (offset of PE signature)
+00000000 00000000 00000000 00000000  # DOS stub area (unused)
+00000000 00000000 00000000 00000000
+00000000 00000000 00000000 00000000
+00000000 00000000 00000000 00000000
+
+# === [0x080] PE signature + COFF file header =========================
+50450000     # "PE\0\0" -- PE signature
+6450         # Machine: 0x5064 = IMAGE_FILE_MACHINE_RISCV64
+0100         # NumberOfSections: 1 (just .text)
+00000000 00000000 00000000  # TimeDateStamp / PointerToSymbolTable /
+                            # NumberOfSymbols -- all zero
+F000         # SizeOfOptionalHeader: 0xF0 (PE32+ optional header is
+             # 0x70 standard fields + 16 data directories x 8 = 0xF0)
+2E00         # Characteristics: 0x002E
+             #   0x0002 IMAGE_FILE_EXECUTABLE_IMAGE
+             #   0x0004 IMAGE_FILE_LINE_NUMS_STRIPPED
+             #   0x0008 IMAGE_FILE_LOCAL_SYMS_STRIPPED
+             #   0x0020 IMAGE_FILE_LARGE_ADDRESS_AWARE
+
+# === [0x098] PE32+ optional header -- standard fields =================
+0B020000               # Magic 0x020B (PE32+) + MajorLinkerVersion=0
+                       # + MinorLinkerVersion=0
+%ELF_end>PE32_text     # SizeOfCode (resolved at link time:
+                       #   ELF_end - PE32_text = byte count of code
+                       #   between :PE32_text and :ELF_end)
+00000000               # SizeOfInitializedData
+00000000               # SizeOfUninitializedData
+40020000               # AddressOfEntryPoint = 0x240 (= :PE32_text RVA)
+40020000               # BaseOfCode = 0x240
+00000000 00000000      # ImageBase = 0 (UEFI relocates at load)
+
+# === [0x0B0] PE32+ optional header -- Windows-specific fields =========
+40000000               # SectionAlignment: 0x40 (in-memory alignment)
+40000000               # FileAlignment: 0x40 (on-disk alignment)
+00000000 00000000      # MajorOSVersion / MinorOSVersion /
+                       # MajorImageVersion / MinorImageVersion
+00000000 00000000      # MajorSubsystemVersion / MinorSubsystemVersion
+                       # Win32VersionValue
+%ELF_end>PE32_base     # SizeOfImage = ELF_end - PE32_base
+                       # (total image size including header)
+40020000               # SizeOfHeaders = 0x240 (header is exactly
+                       # 0x240 bytes; .text starts at 0x240)
+00000000               # CheckSum (left zero; not validated by UEFI)
+0A000000               # Subsystem: 10 = IMAGE_SUBSYSTEM_EFI_APPLICATION
+                       # + DllCharacteristics in upper half (= 0)
+00000000 00000000      # SizeOfStackReserve (8-byte UINT64)
+00000000 00000000      # SizeOfStackCommit (8-byte UINT64)
+00000000 00000000      # SizeOfHeapReserve (8-byte UINT64)
+00000000 00000000      # SizeOfHeapCommit (8-byte UINT64)
+00000000               # LoaderFlags
+10000000               # NumberOfRvaAndSizes: 16
+
+# === [0x0F0] Data directories (16 x {VA, size}, all zero) ============
+# UEFI doesn't require any directories populated for a flat image.
+00000000 00000000 00000000 00000000  # Export
+00000000 00000000 00000000 00000000  # Import
+00000000 00000000 00000000 00000000  # Resource
+00000000 00000000 00000000 00000000  # Exception
+00000000 00000000 00000000 00000000  # Certificate
+00000000 00000000 00000000 00000000  # BaseRelocation
+00000000 00000000 00000000 00000000  # Debug
+00000000 00000000 00000000 00000000  # Architecture / GlobalPtr / TLS
+                                     # / LoadConfig / BoundImport / IAT
+                                     # / DelayImport / CLR / Reserved
+
+# === [0x170] Section table (1 entry, 40 bytes) =======================
+2E746578 74000000      # Name: ".text\0\0\0" (8 bytes, NUL-padded)
+%ELF_end>PE32_text     # VirtualSize = code size
+40020000               # VirtualAddress = 0x240
+%ELF_end>PE32_text     # SizeOfRawData = code size (matches VirtualSize)
+40020000               # PointerToRawData = 0x240
+00000000 00000000      # PointerToRelocations / PointerToLineNumbers
+00000000               # NumberOfRelocations / NumberOfLineNumbers
+20000060               # Characteristics:
+                       #   0x60000020 = CODE | EXECUTE | READ
+                       # (low byte first: 20 00 00 60)
+
+# === [0x198] Pad to 0x240 (where :PE32_text sits) ====================
+# 168 bytes (0x240 - 0x198) of zeros. SizeOfHeaders above promised
+# 0x240, so the code section must start exactly at this offset.
+00000000 00000000 00000000 00000000
+00000000 00000000 00000000 00000000
+00000000 00000000 00000000 00000000
+00000000 00000000 00000000 00000000
+00000000 00000000 00000000 00000000
+00000000 00000000 00000000 00000000
+00000000 00000000 00000000 00000000
+00000000 00000000 00000000 00000000
+00000000 00000000 00000000 00000000
+
+:PE32_text
