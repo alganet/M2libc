@@ -1,4 +1,5 @@
 ## Copyright (C) 2021 Andrius Štikonas
+## Copyright (C) 2026 Alexandre Gomes Gaigalas (riscv64 UEFI additions)
 ## This file is part of M2-Planet.
 ##
 ## M2-Planet is free software: you can redistribute it and/or modify
@@ -13,197 +14,306 @@
 ##
 ## You should have received a copy of the GNU General Public License
 ## along with M2-Planet.  If not, see <http://www.gnu.org/licenses/>.
+##
+## ===================================================================
+## RISC-V 64-bit instruction encodings for M1 macro-assembler
+## ===================================================================
+##
+## M1 sees source code as a stream of tokens; tokens that match a
+## DEFINE macro emit the macro's hex bytes verbatim. To compose a full
+## RISC-V instruction we OR three or four pieces together:
+##
+##     rd_<dst>  rs1_<src1>  [rs2_<src2>]  [imm]  <mnemonic>
+##
+## Each piece is a 32-bit little-endian template with its operand
+## already shifted into the right bit-field; M1's "." prefix tells the
+## assembler to OR (not concatenate) the value with the running word.
+## The final mnemonic carries opcode + funct3 + funct7 bits and ends
+## the instruction.
+##
+## Example -- assemble `add x10, x11, x12` (a0, a1, a2):
+##     rd_a0 rs1_a1 rs2_a2 add
+##     = .00050000 | .00000500 | .0000C000 | 33000000
+##     = 33C50500   (in M1's little-endian byte order)
+##     = 0x005C50B3 in standard riscv64 word order
+##
+## Encoding-byte layout (LE):  byte0  byte1  byte2  byte3
+##     opcode (7 bits)         --XX----  --------  --------  --------
+##     rd     (5 bits)         XX------  ------XX  --------  --------
+##     funct3 (3 bits)         --------  XXXX----  --------  --------
+##     rs1    (5 bits)         --------  XXXX--XX  ------XX  --------
+##     rs2    (5 bits)         --------  --------  XXXXXXXX  --------
+##     funct7 (7 bits)         --------  --------  --------  XXXXXXXX
+##
+## So `rd_X << 7` lives in bytes 0-1 (= "80 0X" or "00 0X"), `rs1_X
+## << 15` in bytes 1-2, and `rs2_X << 20` in bytes 2-3. That is why
+## the X0 register defines below all look like ".0000..." with an
+## offset that depends on which operand slot they fill.
 
 DEFINE NULL 0000000000000000
 
-;; Opcodes
+;; ====================================================================
+;; Opcodes (mnemonic + funct3 + funct7)
+;; ====================================================================
+;; The mnemonic carries the immutable instruction bits. Operands are
+;; OR'd in via the rd_/rs1_/rs2_ defines below.
 
-;; RV32I Base Instruction Set
-DEFINE lui   37000000
-DEFINE auipc 17000000
-DEFINE jal   6F000000
-DEFINE jalr  67000000
-DEFINE beq   63000000
-DEFINE bne   63100000
-DEFINE blt   63400000
-DEFINE bge   63500000
-DEFINE bltu  63600000
-DEFINE bgeu  63700000
-DEFINE lb    03000000
-DEFINE lh    03100000
-DEFINE lw    03200000
-DEFINE lbu   03400000
-DEFINE lhu   03500000
-DEFINE sb    23000000
-DEFINE sh    23100000
-DEFINE sw    23200000
-DEFINE addi  13000000
-DEFINE slti  13200000
-DEFINE sltiu 13300000
-DEFINE xori  13400000
-DEFINE ori   13600000
-DEFINE andi  13700000
-DEFINE slli  13100000
-DEFINE srli  13500000
-DEFINE srai  13500040
-DEFINE add   33000000
-DEFINE sub   33000040
-DEFINE sll   33100000
-DEFINE slt   33200000
-DEFINE sltu  33300000
+;; ===== RV32I Base Instruction Set ===================================
+DEFINE lui   37000000   ; load upper immediate (U-type)
+DEFINE auipc 17000000   ; add upper immediate to PC (U-type)
+DEFINE jal   6F000000   ; jump and link (J-type)
+DEFINE jalr  67000000   ; jump and link register (I-type)
+DEFINE beq   63000000   ; branch if equal (B-type)
+DEFINE bne   63100000   ; branch if not equal
+DEFINE blt   63400000   ; branch if less than (signed)
+DEFINE bge   63500000   ; branch if greater or equal (signed)
+DEFINE bltu  63600000   ; branch if less than (unsigned)
+DEFINE bgeu  63700000   ; branch if greater or equal (unsigned)
+DEFINE lb    03000000   ; load byte (sign-extended)
+DEFINE lh    03100000   ; load halfword (sign-extended)
+DEFINE lw    03200000   ; load word (sign-extended)
+DEFINE lbu   03400000   ; load byte (zero-extended)
+DEFINE lhu   03500000   ; load halfword (zero-extended)
+DEFINE sb    23000000   ; store byte
+DEFINE sh    23100000   ; store halfword
+DEFINE sw    23200000   ; store word
+DEFINE addi  13000000   ; add immediate (also used for nop / mv)
+DEFINE slti  13200000   ; set if less than immediate (signed)
+DEFINE sltiu 13300000   ; set if less than immediate (unsigned)
+DEFINE xori  13400000   ; xor immediate
+DEFINE ori   13600000   ; or immediate
+DEFINE andi  13700000   ; and immediate
+DEFINE slli  13100000   ; shift left logical immediate
+DEFINE srli  13500000   ; shift right logical immediate
+DEFINE srai  13500040   ; shift right arithmetic immediate
+                        ; (high bit of funct7 distinguishes srai/srli)
+DEFINE add   33000000   ; add (R-type)
+DEFINE sub   33000040   ; subtract (funct7=0x20 marks the subtract)
+DEFINE sll   33100000   ; shift left logical (R-type)
+DEFINE slt   33200000   ; set if less than (signed)
+DEFINE sltu  33300000   ; set if less than (unsigned)
 DEFINE xor   33400000
-DEFINE srl   33500000
-DEFINE sra   33500040
+DEFINE srl   33500000   ; shift right logical
+DEFINE sra   33500040   ; shift right arithmetic
 DEFINE or    33600000
 DEFINE and   33700000
-DEFINE ecall 73000000
-DEFINE ebreak 73001000
+DEFINE ecall 73000000   ; environment call (syscall to S/M-mode)
+DEFINE ebreak 73001000  ; environment break (debugger trap)
 
-;; RV64I Base Instruction set
-DEFINE lwu   03600000
-DEFINE ld    03300000
-DEFINE sd    23300000
-DEFINE addiw 1B000000
-DEFINE slliw 1B100000
-DEFINE srliw 1B500000
-DEFINE sraiw 1B500040
-DEFINE addw  3B000000
-DEFINE subw  3B000040
-DEFINE sllw  3B100000
-DEFINE srlw  3B500000
-DEFINE sraw  3B500040
+;; ===== RV64I Base Instruction Set (64-bit additions) ================
+;; CAUTION -- addiw and the *w variants operate on the LOW 32 BITS and
+;; SIGN-EXTEND back to 64. Use them for explicitly-32-bit math; using
+;; addiw to materialise a 64-bit pointer truncates the upper half
+;; (this caused the M2.efi jalr fault in cc_riscv64 -- the fix was to
+;; switch fn-pointer loads from addiw to addi in cc_riscv64.M1).
+DEFINE lwu   03600000   ; load word (zero-extended to 64 bits)
+DEFINE ld    03300000   ; load doubleword (64 bits)
+DEFINE sd    23300000   ; store doubleword
+DEFINE addiw 1B000000   ; add immediate (32-bit, sign-extended)
+DEFINE slliw 1B100000   ; shift left logical immediate (32-bit)
+DEFINE srliw 1B500000   ; shift right logical immediate (32-bit)
+DEFINE sraiw 1B500040   ; shift right arithmetic immediate (32-bit)
+DEFINE addw  3B000000   ; add (32-bit, sign-extended)
+DEFINE subw  3B000040   ; subtract (32-bit)
+DEFINE sllw  3B100000   ; shift left logical (32-bit)
+DEFINE srlw  3B500000   ; shift right logical (32-bit)
+DEFINE sraw  3B500040   ; shift right arithmetic (32-bit)
 
-;; RV32M Standard Extensions
-DEFINE mul    33000002
-DEFINE mulh   33100002
-DEFINE mulhsu 33200002
-DEFINE mulhu  33300002
-DEFINE div    33400002
-DEFINE divu   33500002
-DEFINE rem    33600002
-DEFINE remu   33700002
+;; ===== RV32M Standard Extension (multiply / divide) =================
+;; funct7 = 0x01 marks the M extension.
+DEFINE mul    33000002   ; multiply low 64 bits
+DEFINE mulh   33100002   ; multiply, return high 64 bits (signed)
+DEFINE mulhsu 33200002   ; multiply high (signed * unsigned)
+DEFINE mulhu  33300002   ; multiply high (unsigned * unsigned)
+DEFINE div    33400002   ; signed divide
+DEFINE divu   33500002   ; unsigned divide
+DEFINE rem    33600002   ; signed remainder
+DEFINE remu   33700002   ; unsigned remainder
 
-;; RV64M Standard Extensions
+;; ===== RV64M Standard Extension (32-bit multiply / divide) ==========
 DEFINE mulw   3B000002
 DEFINE divw   3B400002
 DEFINE divuw  3B500002
 DEFINE remw   3B600002
 DEFINE remuw  3B700002
 
-;; Pseudoinstructions
-DEFINE nop  13000000   # addi
-DEFINE mv   13000000   # addi
-DEFINE not  1340F0FF   # xori, RD, RS, -1
-DEFINE beqz 63000000   # beq
-DEFINE bnez 63100000   # bne
-DEFINE bltz 63400000   # blt
-DEFINE ret  67800000   # rs1_ra jalr
+;; ===== Zicsr Extension (CSR access) =================================
+;; Used by posix-runner's trap handler: csrrw to swap registers with
+;; sscratch, csrrs/csrrc to read CSRs without writing, etc.
+DEFINE csrrw  73100000   ; atomic read-write CSR (returns old value)
+DEFINE csrrs  73200000   ; atomic read-set bits (rd <- csr; csr |= rs1)
+DEFINE csrrc  73300000   ; atomic read-clear bits
+DEFINE csrrwi 73500000   ; csrrw with 5-bit immediate source
+DEFINE csrrsi 73600000   ; csrrs with 5-bit immediate
+DEFINE csrrci 73700000   ; csrrc with 5-bit immediate
 
-;; Destination registers
-;; register_number << 7
-DEFINE rd_ra  .80000000
-DEFINE rd_sp  .00010000
-DEFINE rd_gp  .80010000
-DEFINE rd_tp  .00020000
-DEFINE rd_t0  .80020000
-DEFINE rd_t1  .00030000
-DEFINE rd_t2  .80030000
-DEFINE rd_s0  .00040000
-DEFINE rd_fp  .00040000
-DEFINE rd_s1  .80040000
-DEFINE rd_a0  .00050000
-DEFINE rd_a1  .80050000
-DEFINE rd_a2  .00060000
-DEFINE rd_a3  .80060000
-DEFINE rd_a4  .00070000
-DEFINE rd_a5  .80070000
-DEFINE rd_a6  .00080000
-DEFINE rd_a7  .80080000
-DEFINE rd_s2  .00090000
-DEFINE rd_s3  .80090000
-DEFINE rd_s4  .000A0000
-DEFINE rd_s5  .800A0000
-DEFINE rd_s6  .000B0000
-DEFINE rd_s7  .800B0000
-DEFINE rd_s8  .000C0000
-DEFINE rd_s9  .800C0000
-DEFINE rd_s10 .000D0000
-DEFINE rd_s11 .800D0000
-DEFINE rd_t3  .000E0000
-DEFINE rd_t4  .800E0000
-DEFINE rd_t5  .000F0000
-DEFINE rd_t6  .800F0000
+;; ===== System instructions (privileged) =============================
+;; These are SYSTEM-class ECALLs distinguished by funct12 in the upper
+;; immediate slot. The M1 hex bytes embed funct12 in bytes 2-3.
+DEFINE sret 73002010   ; supervisor-mode return (funct12=0x102)
+DEFINE wfi  73005010   ; wait for interrupt    (funct12=0x105)
+DEFINE sfence_vma 73000012   ; sfence.vma rs1, rs2 (funct7=0x09)
+                              ; fence virtual-memory translations
 
-;; First source registers
-;; register_number << 15
-DEFINE rs1_ra  .00800000
-DEFINE rs1_sp  .00000100
-DEFINE rs1_gp  .00800100
-DEFINE rs1_tp  .00000200
-DEFINE rs1_t0  .00800200
-DEFINE rs1_t1  .00000300
-DEFINE rs1_t2  .00800300
-DEFINE rs1_s0  .00000400
-DEFINE rs1_fp  .00000400
-DEFINE rs1_s1  .00800400
-DEFINE rs1_a0  .00000500
-DEFINE rs1_a1  .00800500
-DEFINE rs1_a2  .00000600
-DEFINE rs1_a3  .00800600
-DEFINE rs1_a4  .00000700
-DEFINE rs1_a5  .00800700
-DEFINE rs1_a6  .00000800
-DEFINE rs1_a7  .00800800
-DEFINE rs1_s2  .00000900
-DEFINE rs1_s3  .00800900
-DEFINE rs1_s4  .00000A00
-DEFINE rs1_s5  .00800A00
-DEFINE rs1_s6  .00000B00
-DEFINE rs1_s7  .00800B00
-DEFINE rs1_s8  .00000C00
-DEFINE rs1_s9  .00800C00
-DEFINE rs1_s10 .00000D00
-DEFINE rs1_s11 .00800D00
-DEFINE rs1_t3  .00000E00
-DEFINE rs1_t4  .00800E00
-DEFINE rs1_t5  .00000F00
-DEFINE rs1_t6  .00800F00
+;; ===== CSR address prefixes =========================================
+;; OR'd into csrrw/csrrs/csrrc to select which CSR to access.
+;; The CSR address sits in bits 20-31 of the instruction word; in M1's
+;; LE byte order that is bytes 2-3 (visible after the leading "."s).
+;; We list only the supervisor-mode CSRs needed by posix-runner; the
+;; full machine-mode set lives in upstream M2-Planet.
+;;
+;; Supervisor CSRs (S-mode is where posix-runner's trap handler runs)
+DEFINE csr_sstatus  .00000010   ; 0x100 -- status / interrupt enable
+DEFINE csr_sie      .00004010   ; 0x104 -- interrupt-enable bits
+DEFINE csr_stvec    .00005010   ; 0x105 -- trap vector base
+DEFINE csr_scounteren .00006010 ; 0x106 -- counter access from U-mode
+DEFINE csr_sscratch .00000014   ; 0x140 -- scratch (handler stack ptr)
+DEFINE csr_sepc     .00001014   ; 0x141 -- exception PC (resume here)
+DEFINE csr_scause   .00002014   ; 0x142 -- exception cause code
+DEFINE csr_stval    .00003014   ; 0x143 -- exception bad address/insn
+DEFINE csr_sip      .00004014   ; 0x144 -- interrupt pending bits
+DEFINE csr_satp     .00000018   ; 0x180 -- page-table base + MODE
 
-;; Second source registers
-;; register_number << 20
-DEFINE rs2_ra  .00001000
-DEFINE rs2_sp  .00002000
-DEFINE rs2_gp  .00003000
-DEFINE rs2_tp  .00004000
-DEFINE rs2_t0  .00005000
-DEFINE rs2_t1  .00006000
-DEFINE rs2_t2  .00007000
-DEFINE rs2_s0  .00008000
-DEFINE rs2_fp  .00008000
-DEFINE rs2_s1  .00009000
-DEFINE rs2_a0  .0000A000
-DEFINE rs2_a1  .0000B000
-DEFINE rs2_a2  .0000C000
-DEFINE rs2_a3  .0000D000
-DEFINE rs2_a4  .0000E000
-DEFINE rs2_a5  .0000F000
-DEFINE rs2_a6  .00000001
-DEFINE rs2_a7  .00001001
-DEFINE rs2_s2  .00002001
-DEFINE rs2_s3  .00003001
-DEFINE rs2_s4  .00004001
-DEFINE rs2_s5  .00005001
-DEFINE rs2_s6  .00006001
-DEFINE rs2_s7  .00007001
-DEFINE rs2_s8  .00008001
-DEFINE rs2_s9  .00009001
-DEFINE rs2_s10 .0000A001
-DEFINE rs2_s11 .0000B001
-DEFINE rs2_t3  .0000C001
-DEFINE rs2_t4  .0000D001
-DEFINE rs2_t5  .0000E001
-DEFINE rs2_t6  .0000F001
+;; ===== Pseudoinstructions ===========================================
+;; Convenience aliases that expand to a real instruction with implicit
+;; operands. Saves typing in hand-written M1.
+DEFINE nop  13000000   ; addi x0, x0, 0
+DEFINE mv   13000000   ; addi rd, rs1, 0  (rd <- rs1)
+DEFINE not  1340F0FF   ; xori rd, rs1, -1
+DEFINE beqz 63000000   ; beq rs1, x0, label
+DEFINE bnez 63100000   ; bne rs1, x0, label
+DEFINE bltz 63400000   ; blt rs1, x0, label
+DEFINE ret  67800000   ; jalr x0, 0(ra)  (return to caller)
 
+;; ====================================================================
+;; Operand register slots
+;; ====================================================================
+;; Each register name expands to a 32-bit pattern with the register
+;; index already shifted into the appropriate bit field. The leading
+;; "." tells M1 to OR (not concatenate) with the running word so we
+;; can compose multiple operands into one instruction.
+
+;; ===== Destination register (rd, bits 7-11) =========================
+;; reg_idx << 7 stored little-endian: byte 0 holds the low bit of
+;; reg_idx in bit 7, bytes 1 holds the upper 4 bits.
+DEFINE rd_ra  .80000000   ; x1  (return address)
+DEFINE rd_sp  .00010000   ; x2  (stack pointer)
+DEFINE rd_gp  .80010000   ; x3  (global pointer)
+DEFINE rd_tp  .00020000   ; x4  (thread pointer)
+DEFINE rd_t0  .80020000   ; x5  (temp 0)
+DEFINE rd_t1  .00030000   ; x6
+DEFINE rd_t2  .80030000   ; x7
+DEFINE rd_s0  .00040000   ; x8  (saved 0 / frame pointer)
+DEFINE rd_fp  .00040000   ; alias for s0
+DEFINE rd_s1  .80040000   ; x9
+DEFINE rd_a0  .00050000   ; x10 (arg 0 / return value)
+DEFINE rd_a1  .80050000   ; x11
+DEFINE rd_a2  .00060000   ; x12
+DEFINE rd_a3  .80060000   ; x13
+DEFINE rd_a4  .00070000   ; x14
+DEFINE rd_a5  .80070000   ; x15
+DEFINE rd_a6  .00080000   ; x16
+DEFINE rd_a7  .80080000   ; x17 (also: syscall number on ECALL)
+DEFINE rd_s2  .00090000   ; x18
+DEFINE rd_s3  .80090000   ; x19
+DEFINE rd_s4  .000A0000   ; x20
+DEFINE rd_s5  .800A0000   ; x21
+DEFINE rd_s6  .000B0000   ; x22
+DEFINE rd_s7  .800B0000   ; x23
+DEFINE rd_s8  .000C0000   ; x24
+DEFINE rd_s9  .800C0000   ; x25
+DEFINE rd_s10 .000D0000   ; x26
+DEFINE rd_s11 .800D0000   ; x27
+DEFINE rd_t3  .000E0000   ; x28
+DEFINE rd_t4  .800E0000   ; x29
+DEFINE rd_t5  .000F0000   ; x30
+DEFINE rd_t6  .800F0000   ; x31
+
+;; ===== First source register (rs1, bits 15-19) ======================
+;; reg_idx << 15 stored little-endian.
+DEFINE rs1_ra  .00800000   ; x1
+DEFINE rs1_sp  .00000100   ; x2
+DEFINE rs1_gp  .00800100   ; x3
+DEFINE rs1_tp  .00000200   ; x4
+DEFINE rs1_t0  .00800200   ; x5
+DEFINE rs1_t1  .00000300   ; x6
+DEFINE rs1_t2  .00800300   ; x7
+DEFINE rs1_s0  .00000400   ; x8 (also fp)
+DEFINE rs1_fp  .00000400   ; alias for s0
+DEFINE rs1_s1  .00800400   ; x9
+DEFINE rs1_a0  .00000500   ; x10
+DEFINE rs1_a1  .00800500   ; x11
+DEFINE rs1_a2  .00000600   ; x12
+DEFINE rs1_a3  .00800600   ; x13
+DEFINE rs1_a4  .00000700   ; x14
+DEFINE rs1_a5  .00800700   ; x15
+DEFINE rs1_a6  .00000800   ; x16
+DEFINE rs1_a7  .00800800   ; x17
+DEFINE rs1_s2  .00000900   ; x18
+DEFINE rs1_s3  .00800900   ; x19
+DEFINE rs1_s4  .00000A00   ; x20
+DEFINE rs1_s5  .00800A00   ; x21
+DEFINE rs1_s6  .00000B00   ; x22
+DEFINE rs1_s7  .00800B00   ; x23
+DEFINE rs1_s8  .00000C00   ; x24
+DEFINE rs1_s9  .00800C00   ; x25
+DEFINE rs1_s10 .00000D00   ; x26
+DEFINE rs1_s11 .00800D00   ; x27
+DEFINE rs1_t3  .00000E00   ; x28
+DEFINE rs1_t4  .00800E00   ; x29
+DEFINE rs1_t5  .00000F00   ; x30
+DEFINE rs1_t6  .00800F00   ; x31
+
+;; ===== Second source register (rs2, bits 20-24) =====================
+;; reg_idx << 20 stored little-endian. The upper bit of reg_idx (>=16)
+;; spills into byte 3, which is why the second half of this list
+;; switches to ".00000001" / ".00001001" / ... patterns.
+DEFINE rs2_ra  .00001000   ; x1
+DEFINE rs2_sp  .00002000   ; x2
+DEFINE rs2_gp  .00003000   ; x3
+DEFINE rs2_tp  .00004000   ; x4
+DEFINE rs2_t0  .00005000   ; x5
+DEFINE rs2_t1  .00006000   ; x6
+DEFINE rs2_t2  .00007000   ; x7
+DEFINE rs2_s0  .00008000   ; x8
+DEFINE rs2_fp  .00008000   ; alias for s0
+DEFINE rs2_s1  .00009000   ; x9
+DEFINE rs2_a0  .0000A000   ; x10
+DEFINE rs2_a1  .0000B000   ; x11
+DEFINE rs2_a2  .0000C000   ; x12
+DEFINE rs2_a3  .0000D000   ; x13
+DEFINE rs2_a4  .0000E000   ; x14
+DEFINE rs2_a5  .0000F000   ; x15
+DEFINE rs2_a6  .00000001   ; x16 (high bit spills into byte 3)
+DEFINE rs2_a7  .00001001   ; x17
+DEFINE rs2_s2  .00002001   ; x18
+DEFINE rs2_s3  .00003001   ; x19
+DEFINE rs2_s4  .00004001   ; x20
+DEFINE rs2_s5  .00005001   ; x21
+DEFINE rs2_s6  .00006001   ; x22
+DEFINE rs2_s7  .00007001   ; x23
+DEFINE rs2_s8  .00008001   ; x24
+DEFINE rs2_s9  .00009001   ; x25
+DEFINE rs2_s10 .0000A001   ; x26
+DEFINE rs2_s11 .0000B001   ; x27
+DEFINE rs2_t3  .0000C001   ; x28
+DEFINE rs2_t4  .0000D001   ; x29
+DEFINE rs2_t5  .0000E001   ; x30
+DEFINE rs2_t6  .0000F001   ; x31
+
+;; ===== Zero / x0 ABI aliases ========================================
+;; x0 is hard-wired to zero in RISC-V; using rd_zero discards a
+;; computed value (e.g., csrrw rd_zero, csr_sepc, t0 -- write t0 to
+;; sepc, ignore old sepc). These zero-named aliases came from the
+;; M2-Planet riscv64-uefi backend bump; they make hand-written M1
+;; read more clearly than the literal "x0" form.
+DEFINE rd_zero  .00000000
+DEFINE rs1_zero .00000000
+DEFINE rs2_zero .00000000
+
+;; Explicit-numbered xN aliases for rs1_x0 and rs2_x0..x31. Useful
+;; when generated code uses register indices directly rather than
+;; ABI names.
 DEFINE rs1_x0  .00000000
 
 DEFINE rs2_x0  .00000000

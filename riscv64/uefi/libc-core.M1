@@ -1,0 +1,311 @@
+## SPDX-FileCopyrightText: 2026 Alexandre Gomes Gaigalas
+## SPDX-License-Identifier: GPL-3.0-or-later
+##
+## This file is part of M2-Planet.
+##
+## M2-Planet is free software: you can redistribute it and/or modify
+## it under the terms of the GNU General Public License as published by
+## the Free Software Foundation, either version 3 of the License, or
+## (at your option) any later version.
+##
+## M2-Planet is distributed in the hope that it will be useful,
+## but WITHOUT ANY WARRANTY; without even the implied warranty of
+## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+## GNU General Public License for more details.
+##
+## You should have received a copy of the GNU General Public License
+## along with M2-Planet.  If not, see <http://www.gnu.org/licenses/>.
+##
+## ====================================================================
+## libc-core.M1 -- riscv64 UEFI entry stub and minimal libc surface
+## ====================================================================
+##
+## What this file is:
+##   The hand-written boundary between the UEFI firmware and the C
+##   program produced by M2-Planet + M1 + hex2. UEFI calls _start with
+##   the standard PE entry-point ABI; we save callee-saved registers,
+##   stash UEFI's ImageHandle/SystemTable in globals (so the C code
+##   can reach them via uefi_st / uefi_handle), call FUNCTION__init
+##   (M2libc init), switch from UEFI's stack to a user stack, then
+##   call FUNCTION_main(argc, argv, envp). On exit we walk the same
+##   transition in reverse and `ret` back to UEFI which closes the
+##   image cleanly.
+##
+## ABI contract on _start (from UEFI):
+##   a0 = EFI_HANDLE       ImageHandle
+##   a1 = EFI_SYSTEM_TABLE* SystemTable
+##   ra = UEFI return address (must be preserved for the final ret)
+##   sp = UEFI's stack -- we use it during _init then swap to the
+##        user stack before main; the original sp is stashed at
+##        :__return_address so __exit can switch back.
+##
+## Calling convention notes (M2-Planet riscv64):
+##   M2-Planet generates code that reads locals from `fp - N`, where
+##   each local is 8 bytes. Before calling a generated function we
+##   must therefore set up a "save frame":
+##
+##       sp -= 24                ; reserve 24 bytes
+##       *(sp+8)  = ra           ; caller's return address
+##       *(sp+0)  = fp           ; caller's fp
+##       *(sp+16) = tp           ; caller's tp (M2-Planet uses tp
+##                                  to remember where fp will land)
+##       tp = sp                 ; tp points at the new fp slot
+##       fp = tp                 ; fp = tp = saved-fp slot
+##       jal callee              ; callee reads its first local from
+##                                  fp-8, second from fp-16, etc.
+##
+##   On return, restore in reverse: load fp/tp/ra back from the same
+##   slots, sp += 24, continue.
+##
+## Stack-save macro NOTE:
+##   M1's `! immediate` encoding doesn't work for S-type (sd) offsets
+##   on riscv64 -- the immediate splits across two non-contiguous
+##   bit-fields and our hex pattern packs them into a single field.
+##   That's why this file does sp adjustments and offset-0 stores in
+##   pairs (`sp -= 8 ; sd reg, 0(sp)`) instead of single
+##   `sd reg, -8(sp)` instructions. The other M1 files use `@N sd`
+##   which is a workaround macro that handles the S-type splitting.
+
+:_start
+	# === Save callee-saved registers ================================
+	# UEFI promised us 13 callee-saved slots: ra, fp, s1-s11. Push
+	# each one with sp-=8; sd reg, 0(sp). This costs 26 instructions
+	# vs 13 with a single sub-sp + 13 stores, but `! N sd` doesn't
+	# work for S-type immediates in M1 (see header note).
+	rd_sp rs1_sp !-8 addi
+	rs1_sp rs2_ra sd               ; save ra
+	rd_sp rs1_sp !-8 addi
+	rs1_sp rs2_fp sd               ; save fp
+	rd_sp rs1_sp !-8 addi
+	rs1_sp rs2_s1 sd               ; save s1
+	rd_sp rs1_sp !-8 addi
+	rs1_sp rs2_s2 sd               ; save s2
+	rd_sp rs1_sp !-8 addi
+	rs1_sp rs2_s3 sd               ; save s3
+	rd_sp rs1_sp !-8 addi
+	rs1_sp rs2_s4 sd               ; save s4
+	rd_sp rs1_sp !-8 addi
+	rs1_sp rs2_s5 sd               ; save s5
+	rd_sp rs1_sp !-8 addi
+	rs1_sp rs2_s6 sd               ; save s6
+	rd_sp rs1_sp !-8 addi
+	rs1_sp rs2_s7 sd               ; save s7
+	rd_sp rs1_sp !-8 addi
+	rs1_sp rs2_s8 sd               ; save s8
+	rd_sp rs1_sp !-8 addi
+	rs1_sp rs2_s9 sd               ; save s9
+	rd_sp rs1_sp !-8 addi
+	rs1_sp rs2_s10 sd              ; save s10
+	rd_sp rs1_sp !-8 addi
+	rs1_sp rs2_s11 sd              ; save s11
+
+	# === Stash UEFI's stack pointer ================================
+	# After all callee-saves the current sp points at the saved-s11
+	# slot. We keep this address in :__return_address so __exit can
+	# restore it before unwinding back to UEFI.
+	#
+	# auipc + addi is the standard PC-relative-address pattern:
+	# auipc t0, %pcrel_hi(sym) ; addi t0, t0, %pcrel_lo(sym).
+	rd_t0 ~__return_address auipc
+	rd_t0 rs1_t0 !__return_address addi
+	rs1_t0 rs2_sp sd
+
+	# === Stash ImageHandle (a0) and SystemTable (a1) ===============
+	# These globals back the uefi_handle / uefi_st names that
+	# M2libc/uefi/uefi.c references. Without storing them here, any
+	# UEFI call from C code would have to drag the handle/table
+	# through every function signature.
+	rd_t0 ~GLOBAL__image_handle auipc
+	rd_t0 rs1_t0 !GLOBAL__image_handle addi
+	rs1_t0 rs2_a0 sd
+
+	rd_t0 ~GLOBAL__system auipc
+	rd_t0 rs1_t0 !GLOBAL__system addi
+	rs1_t0 rs2_a1 sd
+
+	# === Call FUNCTION__init (M2libc initialization) ===============
+	# _init opens the FS root, sets up malloc state, parses argv from
+	# the LOADED_IMAGE protocol's LoadOptions string, etc. Set up the
+	# M2-Planet save frame as described in the header.
+	rd_sp rs1_sp !-24 addi          ; reserve 24 bytes
+	rs1_sp rs2_ra @8 sd             ; save caller ra at sp+8
+	rs1_sp rs2_fp sd                ; save caller fp at sp+0
+	rs1_sp rs2_tp @16 sd            ; save caller tp at sp+16
+	rd_tp rs1_sp mv                 ; tp = sp (callee's future fp)
+	rd_fp rs1_tp mv                 ; fp = tp (so callee sees its
+	                                ;   own fp before BLR)
+	rd_ra $FUNCTION__init jal
+	rd_fp rs1_sp ld                 ; restore fp
+	rd_tp rs1_sp !16 ld             ; restore tp
+	rd_ra rs1_sp !8 ld              ; restore ra
+	rd_sp rs1_sp !24 addi           ; pop save frame
+
+	# === Switch from UEFI stack to user stack ======================
+	# UEFI stacks are tiny (typically 64 KiB) and rich code in main()
+	# can blow them; switch to the user stack allocated by _init.
+	rd_ra $exit_uefi_stack jal
+
+	# === Call FUNCTION_main(argc, argv, envp) ======================
+	# Re-establish a save frame, then push the three args from their
+	# globals (argc/argv set by _init from LoadOptions, envp = NULL
+	# because UEFI has no env).
+	rd_sp rs1_sp !-24 addi
+	rs1_sp rs2_ra @8 sd
+	rs1_sp rs2_fp sd
+	rs1_sp rs2_tp @16 sd
+	rd_tp rs1_sp mv
+
+	rd_t0 ~GLOBAL__argc auipc
+	rd_t0 rs1_t0 !GLOBAL__argc addi
+	rd_a0 rs1_t0 ld                 ; a0 = argc
+	rd_sp rs1_sp !-8 addi
+	rs1_sp rs2_a0 sd                ; main reads argc at fp-8
+
+	rd_t0 ~GLOBAL__argv auipc
+	rd_t0 rs1_t0 !GLOBAL__argv addi
+	rd_a0 rs1_t0 ld                 ; a0 = argv
+	rd_sp rs1_sp !-8 addi
+	rs1_sp rs2_a0 sd                ; main reads argv at fp-16
+
+	rd_sp rs1_sp !-8 addi
+	rs1_sp rs2_x0 sd                ; envp = NULL at fp-24
+
+	rd_fp rs1_tp mv                 ; fp = tp (final commit before BLR)
+	rd_ra $FUNCTION_main jal
+	rd_sp rs1_sp !24 addi           ; pop 3 args
+	rd_fp rs1_sp ld                 ; restore fp
+	rd_tp rs1_sp !16 ld             ; restore tp
+	rd_ra rs1_sp !8 ld              ; restore ra
+	rd_sp rs1_sp !24 addi           ; pop save frame
+
+	# Fall through to FUNCTION__exit with main's return value in a0.
+
+# === FUNCTION__exit ===================================================
+# C code calls exit(status) which lands here. Switch back to UEFI
+# stack, run M2libc cleanup, then jump to ___exit which restores
+# UEFI's saved sp and callee-saved regs.
+
+:FUNCTION__exit
+	rd_s1 rs1_a0 mv                 ; stash exit code in s1 (preserved
+	                                ;   by enter_uefi_stack)
+	rd_ra $enter_uefi_stack jal     ; switch back to UEFI's stack
+	rd_a0 rs1_s1 mv                 ; restore exit code into a0
+
+	rd_sp rs1_sp !-8 addi
+	rs1_sp rs2_a0 sd                ; spill a0 around _cleanup call
+	rd_ra $FUNCTION__cleanup jal
+	rd_a0 rs1_sp ld                 ; reload exit code
+	rd_sp rs1_sp !8 addi
+
+# === FUNCTION___exit ==================================================
+# Restore the UEFI stack pointer captured at _start, pop callee-saved
+# registers in reverse order, and `ret` to the UEFI caller. UEFI sees
+# this as a normal PE return with the exit status in a0.
+
+:FUNCTION___exit
+	# Reload sp from :__return_address (the slot we saved at _start)
+	rd_t0 ~__return_address auipc
+	rd_t0 rs1_t0 !__return_address addi
+	rd_sp rs1_t0 ld
+
+	# Pop the 13 callee-saved regs in reverse push order (s11 first).
+	rd_s11 rs1_sp ld
+	rd_sp rs1_sp !8 addi
+	rd_s10 rs1_sp ld
+	rd_sp rs1_sp !8 addi
+	rd_s9 rs1_sp ld
+	rd_sp rs1_sp !8 addi
+	rd_s8 rs1_sp ld
+	rd_sp rs1_sp !8 addi
+	rd_s7 rs1_sp ld
+	rd_sp rs1_sp !8 addi
+	rd_s6 rs1_sp ld
+	rd_sp rs1_sp !8 addi
+	rd_s5 rs1_sp ld
+	rd_sp rs1_sp !8 addi
+	rd_s4 rs1_sp ld
+	rd_sp rs1_sp !8 addi
+	rd_s3 rs1_sp ld
+	rd_sp rs1_sp !8 addi
+	rd_s2 rs1_sp ld
+	rd_sp rs1_sp !8 addi
+	rd_s1 rs1_sp ld
+	rd_sp rs1_sp !8 addi
+	rd_fp rs1_sp ld
+	rd_sp rs1_sp !8 addi
+	rd_ra rs1_sp ld
+	rd_sp rs1_sp !8 addi
+	ret                              ; back to UEFI
+
+# === Stack-switching helpers ==========================================
+# UEFI gives us a small stack (~64 KiB on most firmwares); main code
+# uses the larger user stack that _init malloc'd. enter_uefi_stack
+# saves the current (user) sp into :GLOBAL___user_stack and reloads
+# the UEFI sp from :__uefi_stack. exit_uefi_stack does the inverse.
+# Both are leaf-style (no save frame) so they're cheap.
+
+:enter_uefi_stack
+	rd_t0 ~GLOBAL___user_stack auipc
+	rd_t0 rs1_t0 !GLOBAL___user_stack addi
+	rs1_t0 rs2_sp sd                ; user_stack = sp
+
+	rd_t0 ~__uefi_stack auipc
+	rd_t0 rs1_t0 !__uefi_stack addi
+	rd_sp rs1_t0 ld                 ; sp = uefi_stack
+
+	rd_fp rs1_sp mv                 ; fp follows sp
+	ret
+
+:exit_uefi_stack
+	rd_t0 ~__uefi_stack auipc
+	rd_t0 rs1_t0 !__uefi_stack addi
+	rs1_t0 rs2_sp sd                ; uefi_stack = sp
+
+	rd_t0 ~GLOBAL___user_stack auipc
+	rd_t0 rs1_t0 !GLOBAL___user_stack addi
+	rd_sp rs1_t0 ld                 ; sp = user_stack
+
+	rd_fp rs1_sp mv
+	ret
+
+# === Reserved storage =================================================
+# These labels are referenced (by auipc + addi) from the code above
+# and from C code via __return_address etc.
+
+:__return_address
+	NULL                            ; UEFI sp at _start entry
+
+:__uefi_stack
+	NULL                            ; sp value to use when on UEFI stack
+
+# === Global variable storage ==========================================
+# C code references these as `image_handle`, `system_table`, `argc`,
+# etc. Each NULL is an 8-byte zero word that gets filled in by _init
+# (or by _start above for image_handle and system_table).
+
+:GLOBAL__image_handle
+	NULL
+:GLOBAL__system
+	NULL
+:GLOBAL___user_stack
+	NULL
+:GLOBAL__malloc_start
+	NULL
+:GLOBAL__malloc_ptr
+	NULL
+:GLOBAL__brk_ptr
+	NULL
+:GLOBAL__argc
+	NULL
+:GLOBAL__argv
+	NULL
+:GLOBAL__rootdir
+	NULL
+:GLOBAL__root_device
+	NULL
+:GLOBAL__envp
+	NULL
+:GLOBAL__cwd
+	NULL
+:GLOBAL__root
+	NULL
