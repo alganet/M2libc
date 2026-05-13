@@ -331,7 +331,9 @@ int uname(struct utsname* unameData)
 	memcpy(unameData->version, "1.0", 4);
 #ifdef __x86_64__
 	memcpy(unameData->machine, "x86_64", 7);
-#elif defined(__riscv)
+#elif __riscv && __riscv_xlen==32
+	memcpy(unameData->machine, "riscv32", 8);
+#elif __riscv && __riscv_xlen==64
 	memcpy(unameData->machine, "riscv64", 8);
 #else
 #error unsupported arch

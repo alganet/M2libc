@@ -369,11 +369,11 @@ char _read(FILE* f, unsigned size, FUNCTION read)
 	    "rd_a1 rs1_sp !8 addi"          /* a1 = sp+8 = &size */
 	    "rd_a2 rs1_sp mv"               /* a2 = sp = &buffer */
 	    "rd_t0 rs1_fp !-24 ld"          /* t0 = file->read fn */
-	    "rd_sp rs1_sp !-8 addi"
+	    "rd_sp rs1_sp !-16 addi"
 	    "rs1_sp rs2_ra sd"
 	    "rd_ra rs1_t0 jalr"             /* call read(file, &size, &buffer) */
 	    "rd_ra rs1_sp ld"
-	    "rd_sp rs1_sp !8 addi"
+	    "rd_sp rs1_sp !16 addi"
 	    "rd_t0 rs1_sp !8 ld"            /* t0 = bytes actually read */
 	    "rd_a0 rs1_sp lbu"              /* a0 = byte (zero-extend) */
 	    "rd_sp rs1_sp !16 addi"
@@ -396,11 +396,11 @@ long _write(FILE* f, unsigned size, char c, FUNCTION write)
 	    "rd_a1 rs1_sp !8 addi"
 	    "rd_a2 rs1_sp mv"
 	    "rd_t0 rs1_fp !-32 ld"
-	    "rd_sp rs1_sp !-8 addi"
+	    "rd_sp rs1_sp !-16 addi"
 	    "rs1_sp rs2_ra sd"
 	    "rd_ra rs1_t0 jalr"
 	    "rd_ra rs1_sp ld"
-	    "rd_sp rs1_sp !24 addi");
+	    "rd_sp rs1_sp !32 addi");
 }
 
 /* _write_stdout -- EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL.OutputString.
@@ -416,11 +416,11 @@ void _write_stdout(void* con_out, int c, FUNCTION output_string)
 	    "rs1_sp rs2_zero @8 sd"
 	    "rd_a1 rs1_sp mv"
 	    "rd_t0 rs1_fp !-24 ld"
-	    "rd_sp rs1_sp !-8 addi"
+	    "rd_sp rs1_sp !-16 addi"
 	    "rs1_sp rs2_ra sd"
 	    "rd_ra rs1_t0 jalr"
 	    "rd_ra rs1_sp ld"
-	    "rd_sp rs1_sp !24 addi");
+	    "rd_sp rs1_sp !32 addi");
 }
 
 /* _open_protocol -- EFI_BOOT_SERVICES.OpenProtocol.
@@ -439,11 +439,11 @@ void* _open_protocol(void* handle, struct efi_guid* protocol, void* agent_handle
 	    "rd_a4 rs1_fp !-32 ld"
 	    "rd_a5 rs1_fp !-40 ld"
 	    "rd_t0 rs1_fp !-48 ld"
-	    "rd_sp rs1_sp !-8 addi"
+	    "rd_sp rs1_sp !-16 addi"
 	    "rs1_sp rs2_ra sd"
 	    "rd_ra rs1_t0 jalr"
 	    "rd_ra rs1_sp ld"
-	    "rd_sp rs1_sp !8 addi"
+	    "rd_sp rs1_sp !16 addi"
 	    "rd_a0 rs1_sp ld"
 	    "rd_sp rs1_sp !16 addi");
 }
@@ -457,11 +457,11 @@ int _close_protocol(void *handle, struct efi_guid* protocol, void* agent_handle,
 	    "rd_a2 rs1_fp !-24 ld"
 	    "rd_a3 rs1_fp !-32 ld"
 	    "rd_t0 rs1_fp !-40 ld"
-	    "rd_sp rs1_sp !-8 addi"
+	    "rd_sp rs1_sp !-16 addi"
 	    "rs1_sp rs2_ra sd"
 	    "rd_ra rs1_t0 jalr"
 	    "rd_ra rs1_sp ld"
-	    "rd_sp rs1_sp !8 addi");
+	    "rd_sp rs1_sp !16 addi");
 }
 
 /* _open_volume -- EFI_SIMPLE_FILE_SYSTEM_PROTOCOL.OpenVolume.
@@ -473,11 +473,11 @@ int _open_volume(struct efi_simple_file_system_protocol* rootfs, FUNCTION open_v
 	    "rs1_sp rs2_zero sd"
 	    "rd_a1 rs1_sp mv"
 	    "rd_t0 rs1_fp !-16 ld"
-	    "rd_sp rs1_sp !-8 addi"
+	    "rd_sp rs1_sp !-16 addi"
 	    "rs1_sp rs2_ra sd"
 	    "rd_ra rs1_t0 jalr"
 	    "rd_ra rs1_sp ld"
-	    "rd_sp rs1_sp !8 addi"
+	    "rd_sp rs1_sp !16 addi"
 	    "rd_a0 rs1_sp ld"
 	    "rd_sp rs1_sp !16 addi");
 }
@@ -495,11 +495,11 @@ FILE* _open(void* _rootdir, char* name, long mode, long attributes, FUNCTION ope
 	    "rd_a3 rs1_fp !-24 ld"
 	    "rd_a4 rs1_fp !-32 ld"
 	    "rd_t0 rs1_fp !-40 ld"
-	    "rd_sp rs1_sp !-8 addi"
+	    "rd_sp rs1_sp !-16 addi"
 	    "rs1_sp rs2_ra sd"
 	    "rd_ra rs1_t0 jalr"
 	    "rd_ra rs1_sp ld"
-	    "rd_sp rs1_sp !8 addi"
+	    "rd_sp rs1_sp !16 addi"
 	    "rd_a0 rs1_sp ld"
 	    "rd_sp rs1_sp !16 addi");
 }
@@ -510,11 +510,11 @@ FILE* _close(FILE* f, FUNCTION close)
 {
 	asm("rd_a0 rs1_fp !-8 ld"
 	    "rd_t0 rs1_fp !-16 ld"
-	    "rd_sp rs1_sp !-8 addi"
+	    "rd_sp rs1_sp !-16 addi"
 	    "rs1_sp rs2_ra sd"
 	    "rd_ra rs1_t0 jalr"
 	    "rd_ra rs1_sp ld"
-	    "rd_sp rs1_sp !8 addi");
+	    "rd_sp rs1_sp !16 addi");
 }
 
 /* _allocate_pages -- EFI_BOOT_SERVICES.AllocatePages.
@@ -536,11 +536,11 @@ long _allocate_pages(unsigned type, unsigned memory_type, unsigned pages, long _
 	    "rd_a2 rs1_fp !-24 ld"
 	    "rd_a3 rs1_fp !-32 addi"
 	    "rd_t0 rs1_fp !-40 ld"
-	    "rd_sp rs1_sp !-8 addi"
+	    "rd_sp rs1_sp !-16 addi"
 	    "rs1_sp rs2_ra sd"
 	    "rd_ra rs1_t0 jalr"
 	    "rd_ra rs1_sp ld"
-	    "rd_sp rs1_sp !8 addi"
+	    "rd_sp rs1_sp !16 addi"
 	    "rd_a0 rs1_fp !-32 ld");
 }
 
@@ -551,11 +551,11 @@ void _free_pages(void* memory, unsigned pages, FUNCTION free_pages)
 	asm("rd_a0 rs1_fp !-8 ld"
 	    "rd_a1 rs1_fp !-16 ld"
 	    "rd_t0 rs1_fp !-24 ld"
-	    "rd_sp rs1_sp !-8 addi"
+	    "rd_sp rs1_sp !-16 addi"
 	    "rs1_sp rs2_ra sd"
 	    "rd_ra rs1_t0 jalr"
 	    "rd_ra rs1_sp ld"
-	    "rd_sp rs1_sp !8 addi");
+	    "rd_sp rs1_sp !16 addi");
 }
 
 /* === Section 5: Higher-level libc surface ===========================
