@@ -317,14 +317,14 @@ unsigned __uefi_1(void*, void*, FUNCTION f)
 	    "sub_rsp, %32"
 	    "call_rax"
 	    "mov_rsp,[rsp+BYTE] %40");
-#elif defined(__riscv)
+#elif __riscv && __riscv_xlen==64
 	asm("rd_a0 rs1_fp !-8 ld"
 	    "rd_t0 rs1_fp !-16 ld"
-	    "rd_sp rs1_sp !-8 addi"
+	    "rd_sp rs1_sp !-16 addi"
 	    "rs1_sp rs2_ra sd"
 	    "rd_ra rs1_t0 jalr"
 	    "rd_ra rs1_sp ld"
-	    "rd_sp rs1_sp !8 addi");
+	    "rd_sp rs1_sp !16 addi");
 #else
 #error unsupported arch
 #endif
@@ -345,15 +345,15 @@ unsigned __uefi_2(void*, void*, FUNCTION f)
 	    "sub_rsp, %32"
 	    "call_rax"
 	    "mov_rsp,[rsp+BYTE] %40");
-#elif defined(__riscv)
+#elif __riscv && __riscv_xlen==64
 	asm("rd_a0 rs1_fp !-8 ld"
 	    "rd_a1 rs1_fp !-16 ld"
 	    "rd_t0 rs1_fp !-24 ld"
-	    "rd_sp rs1_sp !-8 addi"
+	    "rd_sp rs1_sp !-16 addi"
 	    "rs1_sp rs2_ra sd"
 	    "rd_ra rs1_t0 jalr"
 	    "rd_ra rs1_sp ld"
-	    "rd_sp rs1_sp !8 addi");
+	    "rd_sp rs1_sp !16 addi");
 #else
 #error unsupported arch
 #endif
@@ -376,16 +376,16 @@ unsigned __uefi_3(void*, void*, void*, FUNCTION f)
 	    "sub_rsp, %32"
 	    "call_rax"
 	    "mov_rsp,[rsp+BYTE] %40");
-#elif defined(__riscv)
+#elif __riscv && __riscv_xlen==64
 	asm("rd_a0 rs1_fp !-8 ld"
 	    "rd_a1 rs1_fp !-16 ld"
 	    "rd_a2 rs1_fp !-24 ld"
 	    "rd_t0 rs1_fp !-32 ld"
-	    "rd_sp rs1_sp !-8 addi"
+	    "rd_sp rs1_sp !-16 addi"
 	    "rs1_sp rs2_ra sd"
 	    "rd_ra rs1_t0 jalr"
 	    "rd_ra rs1_sp ld"
-	    "rd_sp rs1_sp !8 addi");
+	    "rd_sp rs1_sp !16 addi");
 #else
 #error unsupported arch
 #endif
@@ -410,17 +410,17 @@ unsigned __uefi_4(void*, void*, void*, void*, FUNCTION f)
 	    "sub_rsp, %32"
 	    "call_rax"
 	    "mov_rsp,[rsp+BYTE] %40");
-#elif defined(__riscv)
+#elif __riscv && __riscv_xlen==64
 	asm("rd_a0 rs1_fp !-8 ld"
 	    "rd_a1 rs1_fp !-16 ld"
 	    "rd_a2 rs1_fp !-24 ld"
 	    "rd_a3 rs1_fp !-32 ld"
 	    "rd_t0 rs1_fp !-40 ld"
-	    "rd_sp rs1_sp !-8 addi"
+	    "rd_sp rs1_sp !-16 addi"
 	    "rs1_sp rs2_ra sd"
 	    "rd_ra rs1_t0 jalr"
 	    "rd_ra rs1_sp ld"
-	    "rd_sp rs1_sp !8 addi");
+	    "rd_sp rs1_sp !16 addi");
 #else
 #error unsupported arch
 #endif
@@ -449,18 +449,18 @@ unsigned __uefi_5(void*, void*, void*, void*, void*, FUNCTION f)
 	    "sub_rsp, %32"
 	    "call_rax"
 	    "mov_rsp,[rsp+BYTE] %56");
-#elif defined(__riscv)
+#elif __riscv && __riscv_xlen==64
 	asm("rd_a0 rs1_fp !-8 ld"
 	    "rd_a1 rs1_fp !-16 ld"
 	    "rd_a2 rs1_fp !-24 ld"
 	    "rd_a3 rs1_fp !-32 ld"
 	    "rd_a4 rs1_fp !-40 ld"
 	    "rd_t0 rs1_fp !-48 ld"
-	    "rd_sp rs1_sp !-8 addi"
+	    "rd_sp rs1_sp !-16 addi"
 	    "rs1_sp rs2_ra sd"
 	    "rd_ra rs1_t0 jalr"
 	    "rd_ra rs1_sp ld"
-	    "rd_sp rs1_sp !8 addi");
+	    "rd_sp rs1_sp !16 addi");
 #else
 #error unsupported arch
 #endif
@@ -491,7 +491,7 @@ unsigned __uefi_6(void*, void*, void*, void*, void*, void*, FUNCTION f)
 	    "sub_rsp, %32"
 	    "call_rax"
 	    "mov_rsp,[rsp+BYTE] %56");
-#elif defined(__riscv)
+#elif __riscv && __riscv_xlen==64
 	asm("rd_a0 rs1_fp !-8 ld"
 	    "rd_a1 rs1_fp !-16 ld"
 	    "rd_a2 rs1_fp !-24 ld"
@@ -499,11 +499,11 @@ unsigned __uefi_6(void*, void*, void*, void*, void*, void*, FUNCTION f)
 	    "rd_a4 rs1_fp !-40 ld"
 	    "rd_a5 rs1_fp !-48 ld"
 	    "rd_t0 rs1_fp !-56 ld"
-	    "rd_sp rs1_sp !-8 addi"
+	    "rd_sp rs1_sp !-16 addi"
 	    "rs1_sp rs2_ra sd"
 	    "rd_ra rs1_t0 jalr"
 	    "rd_ra rs1_sp ld"
-	    "rd_sp rs1_sp !8 addi");
+	    "rd_sp rs1_sp !16 addi");
 #else
 #error unsupported arch
 #endif
@@ -903,9 +903,9 @@ void _init()
 	}
 	else
 	{
-		load_options = calloc(4, 1);
+		load_options = NULL;
 	}
-	_process_load_options(load_options);
+	if(load_options != NULL && load_options[0] != 0) _process_load_options(load_options);
 
 	EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID.data1 = 0x964E5B22;
 	EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID.data2 = 0x6459;
