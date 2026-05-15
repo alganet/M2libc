@@ -139,7 +139,13 @@ int spawn(char* file_name, char** argv, char** envp)
 	if(rval != EFI_SUCCESS) return -1;
 	struct efi_loaded_image_protocol* child_image;
 	rval = _open_protocol(child_ih, &EFI_LOADED_IMAGE_PROTOCOL_GUID, &child_image, child_ih, 0, EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL);
-	if(rval != EFI_SUCCESS) return -1;
+	if(rval != EFI_SUCCESS)
+	{
+		/* Don't leak the loaded child image -- UEFI keeps it resident
+		 * until ExitBootServices otherwise. */
+		__uefi_1(child_ih, _system->boot_services->unload_image);
+		return -1;
+	}
 
 	/* Concatenate char** argv array */
 	unsigned arg_length = -1 ;
@@ -288,8 +294,13 @@ int close(int fd)
 int unlink(char* filename)
 {
 	FILE* f = fopen(filename, "w");
+	if(f == NULL) return -1;
 	struct efi_file_protocol* fd = f->fd;
-	__uefi_1(fd, fd->delete);
+	/* delete() also closes the handle, so we don't fclose(f) here.
+	 * The FILE wrapper struct itself is leaked under M2-Planet
+	 * (matches the rest of the UEFI libc's posix-shim pattern). */
+	long status = __uefi_1(fd, fd->delete);
+	return status == 0 ? 0 : -1;
 }
 
 int symlink(char *path1, char *path2)

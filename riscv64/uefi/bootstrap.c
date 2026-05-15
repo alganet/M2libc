@@ -504,9 +504,12 @@ FILE* _open(void* _rootdir, char* name, long mode, long attributes, FUNCTION ope
 	    "rd_sp rs1_sp !16 addi");
 }
 
-/* _close -- EFI_FILE_PROTOCOL.Close. UEFI flushes & releases the
- * handle; we don't bother reading the status. */
-FILE* _close(FILE* f, FUNCTION close)
+/* _close -- EFI_FILE_PROTOCOL.Close. Returns the raw EFI_STATUS in
+ * a0; EFI_SUCCESS == 0 matches POSIX fclose() success, so the int
+ * fclose() wrapper above propagates it directly. Error statuses
+ * have the high bit set and do NOT match POSIX EOF==-1, but no
+ * caller in the bootstrap chain inspects fclose's failure return. */
+long _close(FILE* f, FUNCTION close)
 {
 	asm("rd_a0 rs1_fp !-8 ld"
 	    "rd_t0 rs1_fp !-16 ld"
@@ -677,7 +680,7 @@ void* malloc(int size)
 {
 	if(NULL == _brk_ptr)
 	{
-		unsigned pages = PAGE_NUM; /* 64 MiB = 16384 * 4 KiB pages */
+		unsigned pages = PAGE_NUM; /* 256 MiB = 65536 * 4 KiB pages */
 		_malloc_ptr = _allocate_pages(EFI_ALLOCATE_ANY_PAGES, EFI_LOADER_DATA, pages, _malloc_ptr, _system->boot_services->allocate_pages);
 		if(_malloc_ptr == 0)
 		{
@@ -737,7 +740,7 @@ void exit(unsigned value)
 /* _posix_path_to_uefi -- narrow ASCII path -> UCS-2 with '\\'.
  * Caller-allocated output via calloc; output is NUL-terminated as a
  * UCS-2 string (i.e. trailing 0x00 0x00). */
-void _posix_path_to_uefi(char *narrow_string)
+char* _posix_path_to_uefi(char *narrow_string)
 {
 	unsigned length = strlen(narrow_string) + 1;
 	char *wide_string = calloc(length, 2);

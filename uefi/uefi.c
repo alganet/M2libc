@@ -36,24 +36,9 @@
 #define EFI_VARIABLE_BOOTSERVICE_ACCESS 2
 
 #define EFI_SUCCESS 0
-#define EFI_LOAD_ERROR (1 << 63) | 1
-#define EFI_INVALID_PARAMETER (1 << 63) | 2
-#define EFI_UNSUPPORTED (1 << 63) | 3
-#define EFI_BUFFER_TOO_SMALL (1 << 63) | 5
-#define EFI_NOT_FOUND (1 << 31) | 14
 
 #define __PATH_MAX 4096
 #define __ENV_NAME_MAX 4096
-
-#define HARDWARE_DEVICE_PATH 1
-#define MEMORY_MAPPED 3
-#define END_HARDWARE_DEVICE_PATH 0x7F
-#define END_ENTIRE_DEVICE_PATH 0xFF
-
-#define TPL_APPLICATION    4
-#define TPL_CALLBACK       8
-#define TPL_NOTIFY         16
-#define TPL_HIGH_LEVEL     31
 
 void* _image_handle;
 void* _root_device;
@@ -294,16 +279,6 @@ struct efi_file_info
 	char file_name[__PATH_MAX];
 };
 
-struct efi_device_path_protocol
-{
-	uint8_t type;
-	uint8_t subtype;
-	uint16_t length;
-	uint32_t memory_type;
-	unsigned start_address;
-	unsigned end_address;
-};
-
 unsigned __uefi_1(void*, void*, FUNCTION f)
 {
 #ifdef __x86_64__
@@ -516,7 +491,7 @@ unsigned _allocate_pool(unsigned memory_type, unsigned size, void* pool)
 
 void _free_pool(void* memory)
 {
-	return __uefi_1(memory, _system->boot_services->free_pool);
+	__uefi_1(memory, _system->boot_services->free_pool);
 }
 
 unsigned _open_protocol(void* handle, struct efi_guid* protocol, void* agent_handle, void** interface, void* controller_handle, long attributes, FUNCTION open_protocol)
@@ -898,8 +873,11 @@ void _init()
 	char* load_options;
 	if(_image->load_options_size != 0)
 	{
-		load_options = calloc(_image->load_options_size, 1);
+		/* +1 byte so wcstombs can't walk off the end if the firmware
+		 * hands us a buffer without a UCS-2 NUL terminator. */
+		load_options = calloc(_image->load_options_size + 1, 1);
 		wcstombs(load_options, _image->load_options, _image->load_options_size);
+		load_options[_image->load_options_size] = 0;
 	}
 	else
 	{
