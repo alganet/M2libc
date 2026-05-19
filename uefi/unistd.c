@@ -300,7 +300,9 @@ int unlink(char* filename)
 	 * The FILE wrapper struct itself is leaked under M2-Planet
 	 * (matches the rest of the UEFI libc's posix-shim pattern). */
 	long status = __uefi_1(fd, fd->delete);
-	return status == 0 ? 0 : -1;
+	/* M2-Planet has no ternary operator; use plain if/return. */
+	if(status == 0) return 0;
+	return -1;
 }
 
 int symlink(char *path1, char *path2)
