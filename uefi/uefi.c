@@ -37,6 +37,8 @@
 
 #define EFI_SUCCESS 0
 
+#define TPL_HIGH_LEVEL 31
+
 #define __PATH_MAX 4096
 #define __ENV_NAME_MAX 4096
 
