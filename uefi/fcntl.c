@@ -66,18 +66,21 @@ void _set_file_size(struct efi_file_protocol* f, unsigned new_size)
 
 int _open(char* name, int flag, int mode)
 {
-	long mode = 0;
+	/* POSIX `mode` permission bits don't map to UEFI's file model; the
+	 * EFI driver derives access purely from `flag`. We shadow the param
+	 * with a local that holds EFI_FILE_MODE_* flags instead. */
+	long efi_mode = 0;
 	long attributes = 0;
 	if ((flag == (O_WRONLY | O_CREAT | O_TRUNC)) || (flag == (O_RDWR | O_CREAT | O_EXCL)))
 	{
-		mode = EFI_FILE_MODE_CREATE | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_READ;
+		efi_mode = EFI_FILE_MODE_CREATE | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_READ;
 	}
 	else
 	{       /* Everything else is a read */
-		mode = EFI_FILE_MODE_READ;
+		efi_mode = EFI_FILE_MODE_READ;
 		attributes = EFI_FILE_READ_ONLY;
 	}
-	int handle = __open(_rootdir, name, mode, attributes);
+	int handle = __open(_rootdir, name, efi_mode, attributes);
 	if (flag & O_TRUNC)
 	{
 		_set_file_size(handle, 0);
