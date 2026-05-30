@@ -23,7 +23,6 @@
 #include <ctype.h>
 #include <uefi/string_p.h>
 
-#define PAGE_SIZE 4096
 #define USER_STACK_SIZE 8388608
 #define EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL 1
 #define EFI_FILE_MODE_READ 1
