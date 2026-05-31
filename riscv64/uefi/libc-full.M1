@@ -127,6 +127,9 @@
 	rd_ra $enter_uefi_stack jal
 	rd_a0 rs1_s1 mv                ; restore exit code in a0
 
+	# _cleanup is called bare, matching the self-framing _init / main
+	# calls above (full libc handles its own frame). Unlike libc-core,
+	# the caller does NOT set up a save frame here.
 	rd_sp rs1_sp !-8 addi
 	rs1_sp rs2_a0 sd               ; spill a0 around _cleanup
 	rd_ra $FUNCTION__cleanup jal

@@ -874,11 +874,18 @@ void _init()
 	char* load_options;
 	if(_image->load_options_size != 0)
 	{
-		/* +1 byte so wcstombs can't walk off the end if the firmware
-		 * hands us a buffer without a UCS-2 NUL terminator. */
-		load_options = calloc(_image->load_options_size + 1, 1);
-		wcstombs(load_options, _image->load_options, _image->load_options_size);
-		load_options[_image->load_options_size] = 0;
+		/* load_options_size is a BYTE count; LoadOptions is UCS-2, so it
+		 * holds load_options_size/2 characters. wcstombs's `n` is a count
+		 * of output characters and it reads src[2*i] for i in [0, n), so
+		 * n must be the CHARACTER count -- passing the byte count made it
+		 * read up to ~2x past the buffer when the firmware omits a UCS-2
+		 * NUL terminator (the early-NUL break is the only thing that
+		 * saved it otherwise). The other wcstombs callers here already
+		 * pass size/2; this site was the anomaly. +1 for the ASCII NUL. */
+		unsigned chars = _image->load_options_size / 2;
+		load_options = calloc(chars + 1, 1);
+		wcstombs(load_options, _image->load_options, chars);
+		load_options[chars] = 0;
 	}
 	else
 	{

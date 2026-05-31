@@ -191,11 +191,26 @@
 	rd_ra $enter_uefi_stack jal     ; switch back to UEFI's stack
 	rd_a0 rs1_s1 mv                 ; restore exit code into a0
 
+	# === Call FUNCTION__cleanup (M2libc teardown) ==================
+	# _cleanup is an M2-Planet-generated C function, so it gets the same
+	# save frame as _init / main (see header). The exit code in a0 is
+	# spilled to an outer 8-byte slot that sits above the 24-byte save
+	# frame, so _cleanup never touches it, and we reload it afterwards.
 	rd_sp rs1_sp !-8 addi
-	rs1_sp rs2_a0 sd                ; spill a0 around _cleanup call
+	rs1_sp rs2_a0 sd                ; spill exit code around the call
+	rd_sp rs1_sp !-24 addi          ; reserve 24-byte save frame
+	rs1_sp rs2_ra @8 sd             ; save caller ra at sp+8
+	rs1_sp rs2_fp sd                ; save caller fp at sp+0
+	rs1_sp rs2_tp @16 sd            ; save caller tp at sp+16
+	rd_tp rs1_sp mv                 ; tp = sp (callee's future fp)
+	rd_fp rs1_tp mv                 ; fp = tp
 	rd_ra $FUNCTION__cleanup jal
+	rd_fp rs1_sp ld                 ; restore fp
+	rd_tp rs1_sp !16 ld             ; restore tp
+	rd_ra rs1_sp !8 ld              ; restore ra
+	rd_sp rs1_sp !24 addi           ; pop save frame
 	rd_a0 rs1_sp ld                 ; reload exit code
-	rd_sp rs1_sp !8 addi
+	rd_sp rs1_sp !8 addi            ; pop spill slot
 
 # === FUNCTION___exit ==================================================
 # Restore the UEFI stack pointer captured at _start, pop callee-saved

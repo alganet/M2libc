@@ -291,14 +291,26 @@ int close(int fd)
 }
 
 
+/* fcntl.c's lower-level open primitive: opens `name` with the literal
+ * EFI_FILE_MODE_* flags in `mode` (unlike open(), which only grants write
+ * access when O_CREAT is set). fcntl.c is linked before this file, so the
+ * forward declaration resolves at hex2 link time -- same pattern sys/stat.c
+ * uses for mkdir. Returns the efi_file_protocol handle, or -1 on failure. */
+int __open(struct efi_file_protocol* _rootdir, char* name, long mode, long attributes);
 int unlink(char* filename)
 {
-	FILE* f = fopen(filename, "w");
-	if(f == NULL) return -1;
-	struct efi_file_protocol* fd = f->fd;
-	/* delete() also closes the handle, so we don't fclose(f) here.
-	 * The FILE wrapper struct itself is leaked under M2-Planet
-	 * (matches the rest of the UEFI libc's posix-shim pattern). */
+	/* Open the EXISTING file read+write, WITHOUT EFI_FILE_MODE_CREATE.
+	 * fopen(filename, "w") would set CREATE and silently create a missing
+	 * file, so unlink("missing") would create then delete an empty file and
+	 * wrongly report success -- callers (remove(), rm) could not distinguish
+	 * an absent file from a deleted one. WRITE access is requested because
+	 * some UEFI FAT drivers refuse Delete() on a read-only handle. __open
+	 * returns the raw handle (or -1), so there is no FILE wrapper to leak as
+	 * the old fopen()-based path had. */
+	int handle = __open(_rootdir, filename, EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE, 0);
+	if(handle == -1) return -1;
+	struct efi_file_protocol* fd = handle;
+	/* delete() also closes the handle, so we don't close it separately. */
 	long status = __uefi_1(fd, fd->delete);
 	/* M2-Planet has no ternary operator; use plain if/return. */
 	if(status == 0) return 0;
