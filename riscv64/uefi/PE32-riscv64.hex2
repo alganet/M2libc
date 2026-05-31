@@ -23,8 +23,9 @@
 # Layout: 0x000 DOS header (MZ + zeros + e_lfanew=0x80)
 #         0x080 PE signature + COFF header
 #         0x098 Optional header (PE32+, magic 0x020B)
-#         0x178 Data directories (16 x {RVA, size}, all zero)
-#         0x1F8 Section table (1 entry: .text)
+#         0x108 Data directories (16 x {RVA, size}, all zero)
+#         0x188 Section table (1 entry: .text)
+#         0x1B0 Pad with zeros up to 0x240
 #         0x240 :PE32_text -- code starts here
 
 :PE32_base
@@ -70,8 +71,21 @@ F000         # SizeOfOptionalHeader: 0xF0 (PE32+ optional header is
 00000000 00000000      # ImageBase = 0 (UEFI relocates at load)
 
 # === [0x0B0] PE32+ optional header -- Windows-specific fields =========
-40000000               # SectionAlignment: 0x40 (in-memory alignment)
-40000000               # FileAlignment: 0x40 (on-disk alignment)
+01000000               # SectionAlignment: 1 (byte alignment)
+01000000               # FileAlignment: 1 (byte alignment)
+                       # We use byte (1) alignment, matching the amd64 UEFI
+                       # header, because the linker emits SizeOfImage,
+                       # SizeOfRawData and VirtualSize as the exact %ELF_end
+                       # byte count with no rounding. Declaring a coarser
+                       # alignment (e.g. 0x40) would be violated whenever the
+                       # code size is not a multiple of it, producing an image
+                       # stricter PE loaders can reject. hex2 can't round a
+                       # label difference, so byte alignment -- under which any
+                       # size is trivially aligned -- is the correct choice.
+                       # Note PE requires FileAlignment == SectionAlignment
+                       # when SectionAlignment < 0x1000; both are 1 here, and
+                       # .text's RVA (0x240) equals its file offset (0x240), so
+                       # the flat-mapped layout stays self-consistent.
 00000000 00000000      # MajorOSVersion / MinorOSVersion /
                        # MajorImageVersion / MinorImageVersion
 00000000 00000000      # MajorSubsystemVersion / MinorSubsystemVersion
@@ -90,7 +104,7 @@ F000         # SizeOfOptionalHeader: 0xF0 (PE32+ optional header is
 00000000               # LoaderFlags
 10000000               # NumberOfRvaAndSizes: 16
 
-# === [0x0F0] Data directories (16 x {VA, size}, all zero) ============
+# === [0x108] Data directories (16 x {VA, size}, all zero) ============
 # UEFI doesn't require any directories populated for a flat image.
 00000000 00000000 00000000 00000000  # Export
 00000000 00000000 00000000 00000000  # Import
@@ -103,7 +117,7 @@ F000         # SizeOfOptionalHeader: 0xF0 (PE32+ optional header is
                                      # / LoadConfig / BoundImport / IAT
                                      # / DelayImport / CLR / Reserved
 
-# === [0x170] Section table (1 entry, 40 bytes) =======================
+# === [0x188] Section table (1 entry, 40 bytes) =======================
 2E746578 74000000      # Name: ".text\0\0\0" (8 bytes, NUL-padded)
 %ELF_end>PE32_text     # VirtualSize = code size
 40020000               # VirtualAddress = 0x240
@@ -115,9 +129,10 @@ F000         # SizeOfOptionalHeader: 0xF0 (PE32+ optional header is
                        #   0x60000020 = CODE | EXECUTE | READ
                        # (low byte first: 20 00 00 60)
 
-# === [0x198] Pad to 0x240 (where :PE32_text sits) ====================
-# 168 bytes (0x240 - 0x198) of zeros. SizeOfHeaders above promised
-# 0x240, so the code section must start exactly at this offset.
+# === [0x1B0] Pad to 0x240 (where :PE32_text sits) ====================
+# 144 bytes (0x240 - 0x1B0) of zeros, emitted as the nine 16-byte lines
+# below. SizeOfHeaders above promised 0x240, so the code section must
+# start exactly at that offset.
 00000000 00000000 00000000 00000000
 00000000 00000000 00000000 00000000
 00000000 00000000 00000000 00000000

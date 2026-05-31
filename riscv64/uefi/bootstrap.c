@@ -761,13 +761,21 @@ char* _posix_path_to_uefi(char *narrow_string)
 
 char* wide2string(char *wide_string, unsigned length)
 {
-	/* Scan for UCS-2 null terminator (two consecutive zero bytes). The passed
-	 * `length` from image->load_options_size is unreliable under cc_riscv64
-	 * (it reads UINT32 struct fields as 8 bytes, picking up garbage padding).
-	 * Cap scan at 4096 to avoid runaway reads if the buffer has no null. */
+	/* Scan for the UCS-2 null terminator (two consecutive zero bytes),
+	 * bounded so we never read past the firmware-provided buffer.
+	 *
+	 * `length` is load_options_size in bytes, already passed through
+	 * _clamp_u32 by the caller (cc_riscv64 loads the UINT32 field with an
+	 * 8-byte ld, so the raw field carries garbage in its high bits; the
+	 * caller masks it to the true low-32-bit size). length/2 is therefore
+	 * the exact UCS-2 character count -- a tight upper bound that never
+	 * truncates valid options. We also cap at a hard 4096 as belt-and-
+	 * suspenders, so an unclamped or oversized length still can't run away
+	 * on a buffer that happens to lack the null terminator. */
 	unsigned i;
 	unsigned real_len = 0;
-	unsigned cap = 4096;
+	unsigned cap = length / 2;
+	if(cap > 4096) { cap = 4096; }
 	while(real_len < cap)
 	{
 		if(wide_string[2 * real_len] == 0)
@@ -890,7 +898,13 @@ void _init()
 	 * as the upper 32 bits. Mask to 32 bits via _clamp_u32. */
 	unsigned los = _clamp_u32(image->load_options_size);
 	char* load_options = wide2string(image->load_options, los);
-	process_load_options(load_options);
+	/* Skip parsing an empty command line: process_load_options' do/while
+	 * loop reads one byte past the NUL of an empty string. This mirrors
+	 * the full UEFI initializer in uefi.c, which guards its
+	 * _process_load_options call the same way. wide2string always returns
+	 * a non-NULL calloc'd buffer, so the [0] test is what matters; the
+	 * NULL check is kept for parity with uefi.c. */
+	if(load_options != NULL && load_options[0] != 0) { process_load_options(load_options); }
 
 	EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID = calloc(1, sizeof(struct efi_guid));
 	EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID->data1 = (0x11D26459 << 32) + 0x564E5B22 + 0x40000000;
